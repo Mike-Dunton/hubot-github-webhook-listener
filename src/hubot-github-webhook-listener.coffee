@@ -31,6 +31,8 @@
 #   5. Fire off a github event by interacting with your repo. Comment on an issue or a PR for example.
 #   6. Navigate to `http://127.0.0.1:4040/`
 #      There you can see all webhooks posted to your local machine, and can replay them as many times as you wish.
+#   7. If you set up a secret on your github webhook make sure HUBOT_GITHUB_WEBHOOK_TOKEN=yourverylongtoken if the 
+#      token is not set we will not verify the x-hub-signature.
 #
 # Authors:
 #   Taytay
@@ -38,18 +40,41 @@
 
 url           = require('url')
 querystring   = require('querystring')
+crypto        = require('crypto')
 
 debug = false
 
+HUBOT_GITHUB_WEBHOOK_TOKEN = process.env.HUBOT_GITHUB_WEBHOOK_TOKEN
+
+getSignature = (payload) ->
+    hmac = crypto.createHmac 'sha1', HUBOT_GITHUB_WEBHOOK_TOKEN
+    hmac.update new Buffer JSON.stringify(payload)
+    return 'sha1=' + hmac.digest('hex')
+
+#from https://github.com/vdemedes/secure-compare
+secureCompare = (a, b) ->
+  if typeof a != 'string' or typeof b != 'string'
+    return false
+  mismatch = if a.length == b.length then 0 else 1
+  if mismatch
+    b = a
+  i = 0
+  il = a.length
+  while i < il
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i)
+    ++i
+  return (mismatch is 0)
+
 module.exports = (robot) ->
 
-  #TODO: Introduce secret so that these are verified:
-  # See: https://developer.github.com/webhooks/securing/ and
-  # https://gist.github.com/dcollien/c5d86c968cbc85e88286
   robot.router.post "/hubot/github-repo-listener", (req, res) ->
     try
       if (debug)
         robot.logger.info("Github post received: ", req)
+      if HUBOT_GITHUB_WEBHOOK_TOKEN isnt undefined
+        signature = getSignature(req.body)
+        if not secureCompare(signature, req.headers['x-hub-signature'])
+          throw new Error('Signatures Do Not Match')
       eventBody =
         eventType   : req.headers["x-github-event"]
         signature   : req.headers["X-Hub-Signature"]
@@ -58,7 +83,8 @@ module.exports = (robot) ->
         query       : querystring.parse(url.parse(req.url).query)
 
       robot.emit "github-repo-event", eventBody
-    catch error
-      robot.logger.error "Github repo webhook listener error: #{error.stack}. Request: #{req.body}"
+    catch err
+      robot.logger.error "Github repo webhook listener error: #{err.message}. Request: #{req.body}"
+      robot.logger.error err.stack
 
     res.end ""
