@@ -51,29 +51,14 @@ getSignature = (payload) ->
     hmac.update new Buffer JSON.stringify(payload)
     return 'sha1=' + hmac.digest('hex')
 
-#from https://github.com/vdemedes/secure-compare
-secureCompare = (a, b) ->
-  if typeof a != 'string' or typeof b != 'string'
-    return false
-  mismatch = if a.length == b.length then 0 else 1
-  if mismatch
-    b = a
-  i = 0
-  il = a.length
-  while i < il
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i)
-    ++i
-  return (mismatch is 0)
-
 module.exports = (robot) ->
-
   robot.router.post "/hubot/github-repo-listener", (req, res) ->
     try
       if (debug)
         robot.logger.info("Github post received: ", req)
       if HUBOT_GITHUB_WEBHOOK_TOKEN isnt undefined
         signature = getSignature(req.body)
-        if not secureCompare(signature, req.headers['x-hub-signature'])
+        if signature isnt req.headers['x-hub-signature']
           throw new Error('Signatures Do Not Match')
       eventBody =
         eventType   : req.headers["x-github-event"]
